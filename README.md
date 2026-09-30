@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sketch Atlas
 
-## Getting Started
+Find random Street View spots around the world, like [MapCrunch](https://www.mapcrunch.com/), and save the ones you want to draw.
 
-First, run the development server:
+- **Explore:** Go, Back, Tour mode, and Search to explore around a city or address.
+- **Filters:** countries, area (city center, neighborhoods or countryside), themes (old towns, harbors, markets, canals), indoor imagery, and stealth mode.
+- **Guides:** crop to your page shape, a rule-of-thirds grid, an eye-level line, and grayscale, notan or 3/5-value views.
+- **My spots:** a grid or world map of saved spots, with notes, tags, to-draw/sketched status, JSON export and import, and optional sync between devices.
+
+Keyboard: `N` next, `B` back, `S` save, `T` tour, `F` filters, `G` guides, `L` level the view.
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # then fill in the keys
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Google Maps (required)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+In the [Google Cloud console](https://console.cloud.google.com/google/maps-apis), enable these APIs for your key:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| API | Used for |
+| --- | --- |
+| Maps JavaScript API | Street View, minimap, map of spots (required) |
+| Street View Static API | Thumbnails and reference images on My spots |
+| Geocoding API | Searching for addresses that aren't in the built-in city list |
 
-## Learn More
+### Supabase sync (optional)
 
-To learn more about Next.js, take a look at the following resources:
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql).
+3. In **Authentication → URL Configuration**, set the Site URL to where the app runs (e.g. `http://localhost:3000`), and add `http://localhost:3000/saved` (plus your deployed URL, if any) to Redirect URLs.
+4. From **Project Settings → API Keys**, copy the project URL and the publishable key (the legacy anon key also works) into `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, then restart the dev server.
+5. On **My spots**, click "Sync your spots across devices" and sign in with the emailed link. Do this on each device.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Supabase's built-in email sender only allows a few sign-in emails per hour. That's fine for personal use; set up custom SMTP in Supabase if you need more.
