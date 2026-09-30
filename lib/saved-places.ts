@@ -17,6 +17,8 @@ export interface SavedPlace {
   tags: string[];
   status: SketchStatus;
   savedAt: string;
+  /** Colors picked from this view, as hex; the gallery shows how to mix each one. */
+  colors?: string[];
   /** Last local edit; sync keeps whichever copy of a spot changed most recently. */
   updatedAt?: string;
 }

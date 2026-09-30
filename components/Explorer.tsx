@@ -6,13 +6,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ColorMixer from "./ColorMixer";
 import { AidsPanel, DrawingOverlay, ToneFilters } from "./DrawingAids";
 import FiltersPanel from "./FiltersPanel";
+import { PerspectiveGuides, SceneTools, streetAxis, type SceneTool } from "./Perspective";
 import PlaceSearch from "./PlaceSearch";
 import SaveDialog from "./SaveDialog";
+import { getCamera, setCamera } from "@/lib/camera";
 import { aidsStore, toneFilter } from "@/lib/drawing-aids";
 import { filtersStore, type Anchor } from "@/lib/filters";
 import { findRandomPanorama, loadGoogleMaps, panoramaSources } from "@/lib/google-maps";
 import { nearestCity } from "@/lib/places";
-import { explorerUrl, googleMapsUrl, savedStore, type SavedPlace } from "@/lib/saved-places";
+import { headingDelta } from "@/lib/projection";
+import { explorerUrl, googleMapsUrl, savedStore, upsertPlace, type SavedPlace } from "@/lib/saved-places";
 import { THEME_OPTIONS } from "@/lib/themes";
 
 interface View {
@@ -66,7 +69,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
   const [editing, setEditing] = useState<{ place: SavedPlace; isExisting: boolean } | null>(null);
   const [touring, setTouring] = useState(false);
   const [popover, setPopover] = useState<"aids" | "search" | null>(null);
-  const [pitch, setPitch] = useState(0);
+  const [tool, setTool] = useState<SceneTool | null>(null);
 
   const currentPov = (): Pov | null => {
     const pano = panoRef.current;
@@ -143,7 +146,19 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
         };
         pano.addListener("pano_changed", sync);
         pano.addListener("position_changed", sync);
-        pano.addListener("pov_changed", () => setPitch(Math.round(pano.getPov().pitch * 2) / 2));
+        const syncCamera = () => {
+          const { heading, pitch } = pano.getPov();
+          setCamera({ pov: { heading, pitch, zoom: pano.getZoom() ?? 1 } });
+        };
+        pano.addListener("pov_changed", syncCamera);
+        pano.addListener("zoom_changed", syncCamera);
+        pano.addListener("links_changed", () =>
+          setCamera({ streetHeadings: (pano.getLinks() ?? []).flatMap((l) => (l?.heading == null ? [] : [l.heading])) }),
+        );
+        const resize = new ResizeObserver(([entry]) =>
+          setCamera({ view: { width: entry.contentRect.width, height: entry.contentRect.height } }),
+        );
+        resize.observe(panoEl.current);
 
         // Clicking the minimap jumps to the nearest Street View there.
         map.addListener("click", async (e: google.maps.MapMouseEvent) => {
@@ -186,7 +201,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
     try {
       const found = await findRandomPanorama(service, filtersStore.get(), seen.current);
       rememberCurrent();
-      showPano({ panoId: found.panoId, heading: Math.random() * 360, pitch: 0, zoom: 0 });
+      showPano({ panoId: found.panoId, heading: Math.random() * 360, pitch: 0, zoom: 1 });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong finding a spot.");
     } finally {
@@ -199,6 +214,29 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
   const levelView = () => {
     const pano = panoRef.current;
     if (pano) pano.setPov({ heading: pano.getPov().heading, pitch: 0 });
+  };
+
+  // Turn to look straight down the street (one-point) or at a corner (two-point), level, with guides on.
+  const alignView = (mode: "one" | "two") => {
+    const pano = panoRef.current;
+    if (!pano) return;
+    const { heading } = pano.getPov();
+    const axis = streetAxis(getCamera().streetHeadings, heading);
+    if (axis === null) {
+      flash("There's no street to line up with here. Try another spot.");
+      return;
+    }
+    const options = mode === "one" ? [axis, axis + 180] : [axis + 45, axis + 135, axis + 225, axis + 315];
+    const target = options.reduce((best, h) =>
+      Math.abs(headingDelta(heading, h)) < Math.abs(headingDelta(heading, best)) ? h : best,
+    );
+    pano.setPov({ heading: ((target % 360) + 360) % 360, pitch: 0 });
+    aidsStore.set((a) => ({ ...a, perspective: true }));
+    flash(
+      mode === "one"
+        ? "One-point: the street's edges, rooflines and windows all run to one point on eye level."
+        : "Two-point: each side of the corner has its own vanishing point on eye level.",
+    );
   };
 
   // Jump to the nearest Street View at a searched place and keep Go exploring around it.
@@ -216,7 +254,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
       });
       if (!data.location?.pano) throw new Error("no pano");
       rememberCurrent();
-      showPano({ panoId: data.location.pano, heading: Math.random() * 360, pitch: 0, zoom: 0 });
+      showPano({ panoId: data.location.pano, heading: Math.random() * 360, pitch: 0, zoom: 1 });
     } catch {
       go();
     }
@@ -257,11 +295,11 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
 
   const savedHere = view ? saved.find((p) => p.panoId === view.panoId) : undefined;
 
-  const openSave = () => {
+  const placeForCurrentView = (): SavedPlace | null => {
     const pov = currentPov();
-    if (!pov || !view) return;
+    if (!pov || !view) return null;
     const near = nearLabel(view.lat, view.lng);
-    const place: SavedPlace = savedHere
+    return savedHere
       ? { ...savedHere, heading: pov.heading, pitch: pov.pitch, zoom: pov.zoom }
       : {
           id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
@@ -278,7 +316,25 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
           status: "todo",
           savedAt: new Date().toISOString(),
         };
-    setEditing({ place, isExisting: !!savedHere });
+  };
+
+  const openSave = () => {
+    const place = placeForCurrentView();
+    if (place) setEditing({ place, isExisting: !!savedHere });
+  };
+
+  // A spot's palette: picked colors saved with it (saving the spot first if needed).
+  const addColorToSpot = (hex: string) => {
+    const place = savedHere ?? placeForCurrentView();
+    if (!place) return;
+    const colors = place.colors ?? [];
+    if (colors.includes(hex)) return;
+    upsertPlace({ ...place, colors: [...colors, hex].slice(-8) });
+    if (!savedHere) flash("Saved this spot with its palette");
+  };
+
+  const removeColorFromSpot = (hex: string) => {
+    if (savedHere) upsertPlace({ ...savedHere, colors: (savedHere.colors ?? []).filter((c) => c !== hex) });
   };
 
   const copyLink = async () => {
@@ -308,7 +364,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
         ? "Pick inside the crop frame; everything outside it is darkened."
         : undefined;
 
-  // Keyboard shortcuts: N next, B back, S save, F filters, C colors, T tour, G drawing aids, L level view.
+  // Keyboard shortcuts: N next, B back, S save, F filters, C colors, T tour, G drawing aids, L level view, Esc exit tool.
   const keyActions = useRef<Record<string, () => void>>({});
   useEffect(() => {
     keyActions.current = {
@@ -320,6 +376,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
       t: () => setTouring((v) => !v),
       l: levelView,
       g: () => setPopover((p) => (p === "aids" ? null : "aids")),
+      escape: () => setTool(null),
     };
   });
   useEffect(() => {
@@ -342,7 +399,9 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
     <div className="relative h-dvh w-full overflow-hidden bg-zinc-900 text-white">
       <ToneFilters />
       <div ref={panoEl} className="absolute inset-0" style={{ filter: toneFilter(aids.tone) }} />
-      {view && <DrawingOverlay aids={aids} pitch={pitch} />}
+      {view && <DrawingOverlay aids={aids} />}
+      {view && <PerspectiveGuides show={aids.perspective} showHorizon={aids.horizon || aids.perspective} />}
+      {view && tool && <SceneTools key={`${tool}-${view.panoId}`} tool={tool} onExit={() => setTool(null)} />}
 
       {!view && !error && (
         <div className="absolute inset-0 flex items-center justify-center text-zinc-400">
@@ -420,7 +479,17 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
         )}
 
         {popover === "search" && <PlaceSearch onPick={pickPlace} onClose={() => setPopover(null)} />}
-        {popover === "aids" && <AidsPanel onLevel={levelView} onClose={() => setPopover(null)} />}
+        {popover === "aids" && (
+          <AidsPanel
+            onLevel={levelView}
+            onAlign={alignView}
+            onTool={(t) => {
+              setTool(t);
+              setPopover(null);
+            }}
+            onClose={() => setPopover(null)}
+          />
+        )}
       </div>
 
       <div className={`absolute bottom-8 left-3 z-10 w-64 space-y-2 ${stealth ? "invisible" : ""}`}>
@@ -466,7 +535,15 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
       )}
 
       {showFilters && <FiltersPanel onClose={() => setShowFilters(false)} />}
-      {showColors && <ColorMixer warning={pickWarning} onClose={() => setShowColors(false)} />}
+      {showColors && (
+        <ColorMixer
+          warning={pickWarning}
+          spotColors={savedHere?.colors ?? []}
+          onAddToSpot={view ? addColorToSpot : undefined}
+          onRemoveFromSpot={removeColorFromSpot}
+          onClose={() => setShowColors(false)}
+        />
+      )}
       {editing && <SaveDialog {...editing} onClose={() => setEditing(null)} />}
     </div>
   );

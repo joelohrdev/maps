@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import SpotsMap from "./SpotsMap";
+import { findRecipes } from "@/lib/mixing";
+import { WATER, mixablePaints, paletteStore } from "@/lib/paints";
 import SyncPanel from "./SyncPanel";
 import {
   explorerUrl,
@@ -254,6 +256,8 @@ function PlaceCard({ place, apiKey }: { place: SavedPlace; apiKey: string }) {
           </button>
         )}
 
+        {place.colors && place.colors.length > 0 && <SpotPalette colors={place.colors} />}
+
         {place.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {place.tags.map((t) => (
@@ -307,5 +311,47 @@ function PlaceCard({ place, apiKey }: { place: SavedPlace; apiKey: string }) {
         </div>
       </div>
     </li>
+  );
+}
+
+/** A spot's saved colors, each with the closest mix from the user's own paints. */
+function SpotPalette({ colors }: { colors: string[] }) {
+  const palette = paletteStore.useValue();
+  const recipes = useMemo(() => {
+    const paints = mixablePaints(palette.paints, palette.medium);
+    return colors.map((hex) => ({ hex, recipe: palette.paints.length ? findRecipes(hex, paints, 1)[0] : undefined }));
+  }, [colors, palette.paints, palette.medium]);
+
+  return (
+    <div className="space-y-1 rounded-xl bg-zinc-50 p-2 dark:bg-zinc-900">
+      <p className="text-xs font-medium text-zinc-500">Palette</p>
+      <ul className="space-y-1">
+        {recipes.map(({ hex, recipe }) => (
+          <li key={hex} className="flex items-center gap-2 text-xs">
+            <span className="h-5 w-5 shrink-0 rounded ring-1 ring-black/10" style={{ background: hex }} title={hex} />
+            {recipe ? (
+              <>
+                <span className="h-5 w-5 shrink-0 rounded ring-1 ring-black/10" style={{ background: recipe.hex }} title="Your mix" />
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {recipe.parts
+                    .filter((p) => p.paint.id !== WATER.id)
+                    .sort((a, b) => b.parts - a.parts)
+                    .map((p) => `${p.parts} ${p.paint.name}`)
+                    .join(" + ")}
+                  {recipe.parts.some((p) => p.paint.id === WATER.id) && " + water"}
+                </span>
+              </>
+            ) : (
+              <span className="text-zinc-500">
+                <Link href="/paints" className="underline">
+                  Add your paints
+                </Link>{" "}
+                to see how to mix this
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -18,7 +18,20 @@ declare global {
 
 type Mode = "mine" | "best";
 
-export default function ColorMixer({ warning, onClose }: { warning?: string; onClose: () => void }) {
+export default function ColorMixer({
+  warning,
+  spotColors,
+  onAddToSpot,
+  onRemoveFromSpot,
+  onClose,
+}: {
+  warning?: string;
+  /** Palette saved with the current spot. */
+  spotColors: string[];
+  onAddToSpot?: (hex: string) => void;
+  onRemoveFromSpot: (hex: string) => void;
+  onClose: () => void;
+}) {
   const palette = paletteStore.useValue();
   const [target, setTarget] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("mine");
@@ -96,10 +109,44 @@ export default function ColorMixer({ warning, onClose }: { warning?: string; onC
                   screen. (Chrome and Edge can pick directly from the view.)
                 </p>
               )}
-              {target && <p className="font-mono text-xs text-zinc-400">{target.toUpperCase()}</p>}
+              {target && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-zinc-400">{target.toUpperCase()}</span>
+                  {onAddToSpot && !spotColors.includes(target) && (
+                    <button onClick={() => onAddToSpot(target)} className="text-xs text-amber-300 hover:underline">
+                      + Add to this spot&apos;s palette
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           {warning && <p className="rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">{warning}</p>}
+          {spotColors.length > 0 && (
+            <div className="space-y-1.5 rounded-xl border border-white/10 p-2.5">
+              <p className="text-xs text-zinc-400">This spot&apos;s palette (saved with the spot, mixes shown in My spots)</p>
+              <div className="flex flex-wrap gap-1.5">
+                {spotColors.map((hex) => (
+                  <span key={hex} className="group relative">
+                    <button
+                      onClick={() => setTarget(hex)}
+                      title={hex}
+                      aria-label={`Use ${hex}`}
+                      className={`block h-7 w-7 rounded-md ring-1 ${hex === target ? "ring-2 ring-amber-400" : "ring-white/20"}`}
+                      style={{ background: hex }}
+                    />
+                    <button
+                      onClick={() => onRemoveFromSpot(hex)}
+                      aria-label={`Remove ${hex} from palette`}
+                      className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 rounded-full bg-zinc-800 text-[10px] leading-4 text-white group-hover:block"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {palette.recent.length > 0 && (
             <div className="flex items-center gap-1.5">
               <span className="mr-1 text-xs text-zinc-500">Recent</span>

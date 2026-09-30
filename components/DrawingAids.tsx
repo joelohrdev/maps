@@ -1,9 +1,7 @@
 "use client";
 
+import type { SceneTool } from "./Perspective";
 import { FRAME_OPTIONS, TONE_OPTIONS, aidsStore, type DrawingAids } from "@/lib/drawing-aids";
-
-/** Pitch (degrees) within which the view counts as level, so the eye-level line is accurate. */
-const LEVEL_TOLERANCE = 1.5;
 
 /** SVG filters referenced by the value-study tones; render once near the panorama. */
 export function ToneFilters() {
@@ -19,15 +17,26 @@ export function ToneFilters() {
           </feComponentTransfer>
         </filter>
       ))}
+      {/* Line view: grayscale, soften noise, find edges, then show them as dark lines on white. */}
+      <filter id="tone-lines" colorInterpolationFilters="sRGB">
+        <feColorMatrix type="saturate" values="0" />
+        <feGaussianBlur stdDeviation="0.9" />
+        <feConvolveMatrix order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" />
+        <feComponentTransfer>
+          <feFuncR type="linear" slope="-7" intercept="1" />
+          <feFuncG type="linear" slope="-7" intercept="1" />
+          <feFuncB type="linear" slope="-7" intercept="1" />
+        </feComponentTransfer>
+      </filter>
     </svg>
   );
 }
 
 const guideLine = "absolute bg-white/70 shadow-[0_0_0_1px_rgba(0,0,0,0.25)]";
 
-export function DrawingOverlay({ aids, pitch }: { aids: DrawingAids; pitch: number }) {
+/** Crop frame and rule-of-thirds grid. Eye level and vanishing points live in PerspectiveGuides. */
+export function DrawingOverlay({ aids }: { aids: DrawingAids }) {
   const ratio = FRAME_OPTIONS.find((f) => f.value === aids.frame)?.ratio ?? 0;
-  const level = Math.abs(pitch) <= LEVEL_TOLERANCE;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center overflow-hidden">
@@ -52,28 +61,32 @@ export function DrawingOverlay({ aids, pitch }: { aids: DrawingAids; pitch: numb
             </div>
           ))}
       </div>
-
-      {aids.horizon && (
-        <div className="absolute inset-x-0 top-1/2">
-          <div
-            className={`h-0 border-t-2 ${level ? "border-sky-300" : "border-dashed border-sky-300/50"}`}
-            style={{ filter: "drop-shadow(0 0 1px rgba(0,0,0,0.6))" }}
-          />
-          <span className="absolute right-3 -translate-y-full rounded bg-zinc-950/70 px-1.5 py-0.5 text-[11px] text-sky-200">
-            {level ? "Eye level" : "Press L to level the view"}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
 
-export function AidsPanel({ onLevel, onClose }: { onLevel: () => void; onClose: () => void }) {
+const TOOLS: { value: SceneTool; label: string }[] = [
+  { value: "vp", label: "Find a vanishing point" },
+  { value: "angle", label: "Measure angles" },
+  { value: "proportion", label: "Compare proportions" },
+];
+
+export function AidsPanel({
+  onLevel,
+  onAlign,
+  onTool,
+  onClose,
+}: {
+  onLevel: () => void;
+  onAlign: (mode: "one" | "two") => void;
+  onTool: (tool: SceneTool) => void;
+  onClose: () => void;
+}) {
   const aids = aidsStore.useValue();
   const update = (patch: Partial<DrawingAids>) => aidsStore.set((a) => ({ ...a, ...patch }));
 
   return (
-    <div className="pointer-events-auto w-72 space-y-4 rounded-2xl bg-zinc-950/90 p-4 text-sm shadow-2xl backdrop-blur-md">
+    <div className="pointer-events-auto max-h-[calc(100dvh-8rem)] w-72 space-y-4 overflow-y-auto rounded-2xl bg-zinc-950/90 p-4 text-sm shadow-2xl backdrop-blur-md">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Drawing aids</h2>
         <button aria-label="Close drawing aids" className="text-xl leading-none text-zinc-400 hover:text-white" onClick={onClose}>
@@ -88,22 +101,44 @@ export function AidsPanel({ onLevel, onClose }: { onLevel: () => void; onClose: 
         onChange={(frame) => update({ frame })}
       />
 
+      <Check label="Rule-of-thirds grid" checked={aids.grid} onChange={(grid) => update({ grid })} />
+
       <div className="space-y-2">
-        <Check label="Rule-of-thirds grid" checked={aids.grid} onChange={(grid) => update({ grid })} />
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Perspective</p>
         <Check label="Eye-level line" checked={aids.horizon} onChange={(horizon) => update({ horizon })} />
-        <button
-          onClick={onLevel}
-          className="w-full rounded-lg border border-white/15 px-3 py-1.5 text-left hover:border-white/40"
-          title="Level the view (L)"
-        >
+        <Check
+          label="Vanishing points from the street"
+          checked={aids.perspective}
+          onChange={(perspective) => update({ perspective })}
+        />
+        <div className="grid grid-cols-2 gap-1.5">
+          <button onClick={() => onAlign("one")} className={toolButton} title="Look straight down the street">
+            One-point view
+          </button>
+          <button onClick={() => onAlign("two")} className={toolButton} title="Look at a street corner">
+            Two-point view
+          </button>
+        </div>
+        <button onClick={onLevel} className={`${toolButton} w-full`} title="Level the view (L)">
           Level the view <span className="text-zinc-400">(L): verticals stay vertical</span>
         </button>
       </div>
 
-      <Choice label="Values" options={TONE_OPTIONS} value={aids.tone} onChange={(tone) => update({ tone })} />
+      <div className="space-y-1.5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Sighting tools</p>
+        {TOOLS.map((t) => (
+          <button key={t.value} onClick={() => onTool(t.value)} className={`${toolButton} w-full`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <Choice label="View as" options={TONE_OPTIONS} value={aids.tone} onChange={(tone) => update({ tone })} />
     </div>
   );
 }
+
+const toolButton = "rounded-lg border border-white/15 px-3 py-1.5 text-left hover:border-white/40";
 
 function Choice<T extends string>({
   label,

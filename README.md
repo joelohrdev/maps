@@ -4,11 +4,12 @@ Find random Street View spots around the world, like [MapCrunch](https://www.map
 
 - **Explore:** Go, Back, Tour mode, and Search to explore around a city or address.
 - **Filters:** countries, area (city center, neighborhoods or countryside), themes (old towns, harbors, markets, canals), indoor imagery, and stealth mode.
-- **Guides:** crop to your page shape, a rule-of-thirds grid, an eye-level line, and grayscale, notan or 3/5-value views.
-- **Colors:** pick a color from the view, then see how to mix it from your own paints, or which common paints would mix it best. Manage your paints on `/paints` (watercolor or opaque).
+- **Guides:** crop to your page shape and a rule-of-thirds grid. Views: grayscale, notan, 3/5 values, line drawing, and squint.
+- **Perspective:** an eye-level line and vanishing points taken from the street direction, one-point and two-point view buttons, and sighting tools to find a vanishing point, measure angles, and compare proportions.
+- **Colors:** pick a color from the view, save it to the spot's palette, and see how to mix it from your own paints, or which common paints would mix it best. Manage your paints on `/paints` (watercolor or opaque).
 - **My spots:** a grid or world map of saved spots, with notes, tags, to-draw/sketched status, JSON export and import, and optional sync between devices.
 
-Keyboard: `N` next, `B` back, `S` save, `T` tour, `F` filters, `C` colors, `G` guides, `L` level the view.
+Keyboard: `N` next, `B` back, `S` save, `T` tour, `F` filters, `C` colors, `G` guides, `L` level the view, `Esc` close a sighting tool.
 
 Picking a color straight from the view uses the browser's EyeDropper API (Chrome and Edge). Other browsers fall back to the system color picker.
 
