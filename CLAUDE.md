@@ -19,7 +19,6 @@ The project is on **Next.js 16.3 / React 19.2**. Before using any Next.js API, r
 - **Typed route helpers.** Types like `LayoutProps<"/">` (and `PageProps`) are global and are generated into `.next/types/` by `next dev` or `next build`. Don't import them. If they're missing, run the dev server or a build.
 - **Tailwind CSS v4** runs through `@tailwindcss/postcss`. There is no `tailwind.config.*` file; theme tokens are set in CSS with `@theme inline` in `app/globals.css`. Light and dark colors are CSS variables (`--background`, `--foreground`) that switch on `prefers-color-scheme`.
 - **Import alias:** `@/*` maps to the project root, for example `@/app/...`.
-- The git repository root is this directory (`maps/maps`), not the parent `maps/`.
 
 ## App: Sketch Atlas
 
