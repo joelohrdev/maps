@@ -80,6 +80,9 @@ export default function SavedGallery() {
           <SyncPanel />
         </div>
         <div className="flex gap-2 text-sm">
+          <Link href="/paints" className={outlineButton}>
+            My paints
+          </Link>
           <button onClick={exportJson} disabled={places.length === 0} className={outlineButton}>
             Export
           </button>

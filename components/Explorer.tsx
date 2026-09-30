@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ColorMixer from "./ColorMixer";
 import { AidsPanel, DrawingOverlay, ToneFilters } from "./DrawingAids";
 import FiltersPanel from "./FiltersPanel";
 import PlaceSearch from "./PlaceSearch";
@@ -61,6 +62,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
   const [view, setView] = useState<View | null>(null);
   const [back, setBack] = useState<Pov[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [showColors, setShowColors] = useState(false);
   const [editing, setEditing] = useState<{ place: SavedPlace; isExisting: boolean } | null>(null);
   const [touring, setTouring] = useState(false);
   const [popover, setPopover] = useState<"aids" | "search" | null>(null);
@@ -248,10 +250,10 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
 
   // Tour mode: jump to a new spot every few seconds. Walking around restarts the timer.
   useEffect(() => {
-    if (!touring || !ready || searching || editing || showFilters || popover === "search") return;
+    if (!touring || !ready || searching || editing || showFilters || showColors || popover === "search") return;
     const timer = setTimeout(go, filters.tourSeconds * 1000);
     return () => clearTimeout(timer);
-  }, [touring, ready, searching, editing, showFilters, popover, view?.panoId, filters.tourSeconds, go]);
+  }, [touring, ready, searching, editing, showFilters, showColors, popover, view?.panoId, filters.tourSeconds, go]);
 
   const savedHere = view ? saved.find((p) => p.panoId === view.panoId) : undefined;
 
@@ -290,14 +292,31 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
     }
   };
 
-  // Keyboard shortcuts: N next, B back, S save, F filters, T tour, G drawing aids, L level view.
+  const toggleFilters = () => {
+    setShowColors(false);
+    setShowFilters((v) => !v);
+  };
+  const toggleColors = () => {
+    setShowFilters(false);
+    setShowColors((v) => !v);
+  };
+
+  const pickWarning =
+    aids.tone !== "color"
+      ? "The values view is on, so picked colors will be gray. Set Guides → Values to Color first."
+      : aids.frame !== "none"
+        ? "Pick inside the crop frame; everything outside it is darkened."
+        : undefined;
+
+  // Keyboard shortcuts: N next, B back, S save, F filters, C colors, T tour, G drawing aids, L level view.
   const keyActions = useRef<Record<string, () => void>>({});
   useEffect(() => {
     keyActions.current = {
       n: go,
       b: goBack,
       s: openSave,
-      f: () => setShowFilters((v) => !v),
+      f: toggleFilters,
+      c: toggleColors,
       t: () => setTouring((v) => !v),
       l: levelView,
       g: () => setPopover((p) => (p === "aids" ? null : "aids")),
@@ -368,7 +387,10 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
             >
               Guides
             </ToolButton>
-            <ToolButton onClick={() => setShowFilters((v) => !v)} title="Filters (F)" active={showFilters}>
+            <ToolButton onClick={toggleColors} title="Pick a color and see how to mix it (C)" active={showColors}>
+              Colors
+            </ToolButton>
+            <ToolButton onClick={toggleFilters} title="Filters (F)" active={showFilters}>
               Filters
             </ToolButton>
             <ToolButton onClick={copyLink} disabled={!view} title="Copy a link to this exact view">
@@ -444,6 +466,7 @@ function StreetExplorer({ apiKey }: { apiKey: string }) {
       )}
 
       {showFilters && <FiltersPanel onClose={() => setShowFilters(false)} />}
+      {showColors && <ColorMixer warning={pickWarning} onClose={() => setShowColors(false)} />}
       {editing && <SaveDialog {...editing} onClose={() => setEditing(null)} />}
     </div>
   );

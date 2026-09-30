@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
+import { paletteStore } from "@/lib/paints";
 import { deletedStore, savedStore } from "@/lib/saved-places";
-import { applyingRemote, setSyncStatus, supabase, syncNow } from "@/lib/sync";
+import { applyingRemote, setSyncStatus, supabase, syncNow, syncPalette } from "@/lib/sync";
 
 const DEBOUNCE_MS = 1500;
 const REFOCUS_MIN_GAP_MS = 20_000;
 
-/** Mounted once in the root layout: keeps saved spots in sync while someone is signed in. */
+/** Mounted once in the root layout: keeps saved spots and the paint palette in sync while someone is signed in. */
 export default function SyncManager() {
   useEffect(() => {
     const sb = supabase();
@@ -30,6 +31,7 @@ export default function SyncManager() {
       setSyncStatus({ state: "syncing", error: null });
       try {
         await syncNow(userId);
+        await syncPalette(userId);
         setSyncStatus({ state: "idle", lastSynced: new Date() });
       } catch (e) {
         setSyncStatus({ state: "error", error: e instanceof Error ? e.message : "Sync failed." });
@@ -71,12 +73,21 @@ export default function SyncManager() {
 
     const unsubSaved = savedStore.subscribe(schedule);
     const unsubDeleted = deletedStore.subscribe(schedule);
+    // Picking colors only changes `recent`, which stays on this device, so only sync real palette edits.
+    let paletteVersion = paletteStore.get().updatedAt;
+    const unsubPalette = paletteStore.subscribe(() => {
+      const version = paletteStore.get().updatedAt;
+      if (version === paletteVersion) return;
+      paletteVersion = version;
+      schedule();
+    });
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       subscription.unsubscribe();
       unsubSaved();
       unsubDeleted();
+      unsubPalette();
       document.removeEventListener("visibilitychange", onVisible);
       clearTimeout(timer);
     };

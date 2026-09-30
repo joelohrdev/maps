@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useSyncExternalStore } from "react";
+import { isPaint, paletteStore, type Medium } from "./paints";
 import { deletedStore, lastChanged, savedStore, type SavedPlace } from "./saved-places";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -126,5 +127,72 @@ export async function syncNow(userId: string) {
     });
   } finally {
     applyingRemote = false;
+  }
+}
+
+interface PaletteRow {
+  medium: Medium;
+  paints: unknown[];
+  updated_at: string;
+}
+
+/**
+ * The palette syncs as one unit: the newer copy replaces the older one. A
+ * palette from before sync existed has no timestamp, so the first sync
+ * merges its paints with the server's copy instead of discarding them.
+ */
+export async function syncPalette(userId: string) {
+  const sb = supabase();
+  if (!sb) return;
+
+  const local = paletteStore.get();
+  const { data, error } = await sb.from("palettes").select("medium, paints, updated_at").maybeSingle<PaletteRow>();
+  if (error) throw error;
+
+  const push = async (medium: Medium, paints: unknown[], updatedAt: string) => {
+    const { error } = await sb
+      .from("palettes")
+      .upsert({ user_id: userId, medium, paints, updated_at: updatedAt }, { onConflict: "user_id" });
+    if (error) throw error;
+  };
+
+  // Replace local medium and paints, unless the user edited them while we were waiting.
+  const apply = (medium: Medium, paints: unknown[], updatedAt: string) => {
+    applyingRemote = true;
+    try {
+      paletteStore.set((p) =>
+        p.updatedAt === local.updatedAt ? { ...p, medium, paints: paints.filter(isPaint), updatedAt } : p,
+      );
+    } finally {
+      applyingRemote = false;
+    }
+  };
+
+  if (!local.updatedAt) {
+    if (!data) {
+      if (local.paints.length > 0) {
+        const now = new Date().toISOString();
+        await push(local.medium, local.paints, now);
+        apply(local.medium, local.paints, now);
+      }
+      return;
+    }
+    const remotePaints = data.paints.filter(isPaint);
+    const extra = local.paints.filter((p) => !remotePaints.some((r) => r.id === p.id));
+    if (extra.length === 0) {
+      apply(data.medium, remotePaints, data.updated_at);
+      return;
+    }
+    const now = new Date().toISOString();
+    const merged = [...remotePaints, ...extra];
+    await push(data.medium, merged, now);
+    apply(data.medium, merged, now);
+    return;
+  }
+
+  if (!data || time(local.updatedAt) > time(data.updated_at)) {
+    await push(local.medium, local.paints, local.updatedAt);
+  } else if (time(data.updated_at) > time(local.updatedAt)) {
+    apply(data.medium, data.paints, data.updated_at);
   }
 }
