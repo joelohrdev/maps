@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCamera } from "@/lib/camera";
 import {
   angles,
@@ -190,9 +190,55 @@ const labelStyle = { paintOrder: "stroke" as const, stroke: "rgba(0,0,0,0.75)", 
 export function SceneTools({ tool, onExit }: { tool: SceneTool; onExit: () => void }) {
   const { pov, view } = useCamera();
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [past, setPast] = useState<Segment[][]>([]);
+  const [future, setFuture] = useState<Segment[][]>([]);
   const [draft, setDraft] = useState<Segment | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const info = TOOL_INFO[tool];
+
+  // Every change (add, delete, clear) is undoable.
+  const commit = (next: Segment[]) => {
+    setPast([...past, segments]);
+    setFuture([]);
+    setSegments(next);
+  };
+  const undo = () => {
+    const previous = past.at(-1);
+    if (!previous) return;
+    setPast(past.slice(0, -1));
+    setFuture([...future, segments]);
+    setSegments(previous);
+  };
+  const redo = () => {
+    const next = future.at(-1);
+    if (!next) return;
+    setFuture(future.slice(0, -1));
+    setPast([...past, segments]);
+    setSegments(next);
+  };
+
+  // ⌘Z / Ctrl+Z undo; ⇧⌘Z, Ctrl+Shift+Z or Ctrl+Y redo.
+  const history = useRef({ undo, redo });
+  useEffect(() => {
+    history.current = { undo, redo };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) history.current.redo();
+        else history.current.undo();
+      } else if (key === "y" && e.ctrlKey) {
+        e.preventDefault();
+        history.current.redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const undoKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘Z" : "Ctrl+Z";
 
   const at = (e: React.PointerEvent): Vec => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -207,12 +253,14 @@ export function SceneTools({ tool, onExit }: { tool: SceneTool; onExit: () => vo
   const onMove = (e: React.PointerEvent) => {
     if (draft) setDraft({ a: draft.a, b: at(e) });
   };
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent) => {
     if (!draft) return;
-    const a = project(draft.a, pov, view);
-    const b = project(draft.b, pov, view);
+    // Take the end from the release itself: a quick flick can finish before the last move re-renders.
+    const done = { a: draft.a, b: at(e) };
+    const a = project(done.a, pov, view);
+    const b = project(done.b, pov, view);
     if (a && b && Math.hypot(b.x - a.x, b.y - a.y) > 10) {
-      setSegments((s) => (tool === "proportion" && s.length >= info.max ? s : [...s, draft].slice(-info.max)));
+      if (!(tool === "proportion" && segments.length >= info.max)) commit([...segments, done].slice(-info.max));
     }
     setDraft(null);
   };
@@ -265,6 +313,20 @@ export function SceneTools({ tool, onExit }: { tool: SceneTool; onExit: () => vo
                   {label}
                 </text>
               )}
+              {!draft && i < segments.length && (
+                <g
+                  role="button"
+                  aria-label="Delete this line"
+                  className="cursor-pointer"
+                  transform={`translate(${s.b.x + 14} ${s.b.y - 14})`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => commit(segments.filter((_, j) => j !== i))}
+                >
+                  <title>Delete this line</title>
+                  <circle r={9} fill="rgba(9,9,11,0.85)" stroke="white" strokeOpacity={0.6} />
+                  <path d="M-3.5 -3.5 L3.5 3.5 M3.5 -3.5 L-3.5 3.5" stroke="white" strokeWidth={1.8} strokeLinecap="round" />
+                </g>
+              )}
             </g>
           );
         })}
@@ -281,7 +343,19 @@ export function SceneTools({ tool, onExit }: { tool: SceneTool; onExit: () => vo
           <div className="flex items-center justify-between gap-4">
             <span className="font-semibold">{info.title}</span>
             <div className="flex gap-3 text-xs">
-              <button className="text-zinc-400 hover:text-white" onClick={() => setSegments([])}>
+              <button
+                className="text-zinc-400 hover:text-white disabled:opacity-40"
+                disabled={past.length === 0}
+                onClick={undo}
+                title={`Undo (${undoKey})`}
+              >
+                Undo
+              </button>
+              <button
+                className="text-zinc-400 hover:text-white disabled:opacity-40"
+                disabled={segments.length === 0}
+                onClick={() => commit([])}
+              >
                 Clear
               </button>
               <button className="font-semibold text-amber-300 hover:text-amber-200" onClick={onExit}>
@@ -293,7 +367,10 @@ export function SceneTools({ tool, onExit }: { tool: SceneTool; onExit: () => vo
             {vp ? vp.message : info.hint}
             {vpOffscreen && " (The meeting point is off-screen; follow the dashed lines.)"}
           </p>
-          <p className="text-xs text-zinc-500">The view is locked while this tool is open. Press Done or Esc to look around.</p>
+          <p className="text-xs text-zinc-500">
+            {undoKey} undoes, and × deletes a single line. The view is locked while this tool is open; press Done or Esc
+            to look around.
+          </p>
         </div>
       </div>
     </>
